@@ -1,2 +1,14 @@
-# Sandys_Law-a7do
-A unified embodied AI system (A7DO) with world interaction, background cognition, emotions, and decision-making, built on Sandy’s Law to study how intelligence, preference, and agency emerge from experience.
+# Sandy’s Law — A7DO System
+
+This repository contains a unified artificial organism and decision framework
+designed to explore how intelligence, preference, emotion, and agency emerge
+from structure, persistence, and experience.
+
+The system combines:
+- A7DO: an embodied, developmental AI with background cognition
+- World: an objective environment with no built-in semantics
+- SLED: a phase- and entropy-based decision engine
+- A shared event and memory substrate
+
+The project prioritizes learning over training, persistence over reactivity,
+and safety, explainability, and bounded autonomy throughout.
