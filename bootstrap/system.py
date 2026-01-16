@@ -37,7 +37,7 @@ class StepResult:
 class SystemBootstrap:
     """
     Coupling layer only.
-    Responsible for lifecycle wiring and ordering.
+    Owns lifecycle and ordering.
     """
 
     def __init__(
@@ -54,10 +54,10 @@ class SystemBootstrap:
         self.identity_store = IdentityStore(path=identity_path)
         self.identity = self.identity_store.get()
 
-        # Memory (explicit lifecycle)
+        # Memory (explicit context entry)
         self.memory = MemoryStore(db_path=memory_path)
         self.memory.__enter__()
-        
+
         # World
         self.world = World(width=world_size[0], height=world_size[1])
 
@@ -75,7 +75,7 @@ class SystemBootstrap:
         spawn_events = self.world.spawn_agent(spawn_at[0], spawn_at[1])
         self.memory.append_many(spawn_events)
 
-        # Boot event
+        # Boot marker
         self.memory.append(
             system_event(
                 source="bootstrap",
