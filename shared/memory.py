@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from dataclasses import asdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from shared.events import Event, EventType
@@ -61,7 +60,6 @@ def _ensure_dir(path: str) -> None:
 
 
 def _event_to_row(e: Event) -> Dict[str, Any]:
-    # Event is frozen dataclass; payload must be JSON serializable.
     try:
         payload_json = json.dumps(e.payload, ensure_ascii=False, separators=(",", ":"))
     except TypeError as ex:
@@ -99,18 +97,25 @@ def _row_to_event(row: sqlite3.Row) -> Event:
 
 class MemoryStore:
     """
-    Persistent event store (SQLite).
+    Persistent append-only event store (SQLite).
 
-    Canonical rules:
-    - Append-only event history (identity substrate)
-    - No time dependence for causality; ordering uses `seq` only
-    - Events are immutable; updates are not supported
+    Doctrine:
+    - Append-only
+    - No time dependence
+    - Ordering via seq only
     """
 
     def __init__(self, db_path: str = "data/memory/memory.db") -> None:
         _ensure_dir(db_path)
         self.db_path = db_path
-        self._conn = sqlite3.connect(self.db_path)
+
+        # Streamlit / UI apps use multiple threads.
+        # SQLite defaults to single-thread usage, so we explicitly allow cross-thread access.
+        self._conn = sqlite3.connect(
+            self.db_path,
+            check_same_thread=False,
+            timeout=30,
+        )
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
@@ -139,11 +144,6 @@ class MemoryStore:
     # ----------------------------
 
     def append(self, event: Event) -> int:
-        """
-        Append a single Event. Returns assigned `seq`.
-
-        Events are immutable and cannot be updated once written.
-        """
         row = _event_to_row(event)
         try:
             cur = self._conn.execute(
@@ -157,15 +157,10 @@ class MemoryStore:
             return int(cur.lastrowid)
         except sqlite3.IntegrityError as ex:
             raise MemoryIntegrityError(
-                f"Integrity error while appending event {event.id} ({event.name}). "
-                f"This may be a duplicate id or schema violation."
+                f"Integrity error while appending event {event.id} ({event.name})."
             ) from ex
 
     def append_many(self, events: Iterable[Event]) -> Tuple[int, int]:
-        """
-        Append many events as a single transaction.
-        Returns (count_written, last_seq).
-        """
         events_list = list(events)
         if not events_list:
             return (0, self.last_seq())
@@ -182,8 +177,7 @@ class MemoryStore:
             self._conn.commit()
         except sqlite3.IntegrityError as ex:
             raise MemoryIntegrityError(
-                "Integrity error while appending multiple events. "
-                "One or more ids may be duplicates."
+                "Integrity error while appending multiple events."
             ) from ex
 
         return (len(events_list), self.last_seq())
@@ -221,14 +215,9 @@ class MemoryStore:
             (n,),
         )
         rows = cur.fetchall()
-        # return in chronological order
         return [_row_to_event(r) for r in reversed(rows)]
 
     def iter_since(self, seq_exclusive: int) -> Iterable[Tuple[int, Event]]:
-        """
-        Stream events after a given sequence number (exclusive).
-        Useful for replay / incremental cognition.
-        """
         cur = self._conn.execute(
             "SELECT * FROM events WHERE seq > ? ORDER BY seq ASC",
             (int(seq_exclusive),),
@@ -245,10 +234,6 @@ class MemoryStore:
         parent_id: Optional[str] = None,
         limit: int = 200,
     ) -> List[Tuple[int, Event]]:
-        """
-        Simple query helper (exact-match filters).
-        Returns [(seq, Event), ...] in chronological order.
-        """
         clauses = []
         params: List[Any] = []
 
@@ -276,7 +261,7 @@ class MemoryStore:
         return [(int(r["seq"]), _row_to_event(r)) for r in rows]
 
     # ----------------------------
-    # Integrity / Auditing
+    # Stats / Auditing
     # ----------------------------
 
     def count(self) -> int:
@@ -284,9 +269,6 @@ class MemoryStore:
         return int(cur.fetchone()["c"])
 
     def stats(self) -> Dict[str, Any]:
-        """
-        Lightweight stats for dashboards / health checks.
-        """
         cur = self._conn.execute(
             """
             SELECT
@@ -311,19 +293,15 @@ class MemoryStore:
         }
 
     def verify_parent_links(self, sample_limit: int = 10000) -> Dict[str, Any]:
-        """
-        Checks that parent_id references exist (where present).
-        This is an audit tool. It does NOT modify memory.
-        """
         sample_limit = max(1, int(sample_limit))
         cur = self._conn.execute(
             "SELECT id, parent_id FROM events WHERE parent_id IS NOT NULL LIMIT ?",
             (sample_limit,),
         )
         missing: List[Tuple[str, str]] = []
+
         for row in cur.fetchall():
             pid = row["parent_id"]
-            # parent must exist
             exists = self._conn.execute(
                 "SELECT 1 FROM events WHERE id = ? LIMIT 1",
                 (pid,),
@@ -334,20 +312,10 @@ class MemoryStore:
         return {"checked": sample_limit, "missing_parent_links": missing}
 
     # ----------------------------
-    # Forbidden Operations (by doctrine)
+    # Forbidden Operations
     # ----------------------------
 
     def delete_all_events(self) -> None:
-        """
-        Intentionally not allowed as a normal operation.
-
-        If you truly need destruction for a test reset,
-        implement it in a separate explicit tool with logging and confirmation.
-
-        This method raises by design.
-        """
         raise MemoryIntegrityError(
-            "Deletion of memory is forbidden by doctrine. "
-            "Create an explicit, logged destruction tool if needed."
+            "Deletion of memory is forbidden by doctrine."
         )
-
