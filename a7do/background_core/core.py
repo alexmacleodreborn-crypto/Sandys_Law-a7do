@@ -113,8 +113,8 @@ class BackgroundCore:
     def __init__(self, memory: MemoryStore, config: Optional[BackgroundConfig] = None) -> None:
         self.memory = memory
         self.cfg = config or BackgroundConfig()
-        self.state = BackgroundState(last_seen_seq=self.memory.last_seq())
-
+        self.state.last_seen_seq = self.memory.last_seq())
+        
     # ----------------------------
     # Public API
     # ----------------------------
