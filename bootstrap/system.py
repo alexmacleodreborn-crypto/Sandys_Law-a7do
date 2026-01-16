@@ -22,9 +22,6 @@ from sled.phase.core import PhaseAnalyzer, PhaseSnapshot
 
 @dataclass(frozen=True)
 class StepResult:
-    """
-    Result of one orchestrated system step.
-    """
     emitted_events: List[Event]
     percepts: List[Percept]
     health: HealthSnapshot
@@ -40,9 +37,7 @@ class StepResult:
 class SystemBootstrap:
     """
     Coupling layer only.
-
-    Wires together frozen core modules.
-    Contains NO domain logic.
+    Responsible for lifecycle wiring and ordering.
     """
 
     def __init__(
@@ -59,8 +54,9 @@ class SystemBootstrap:
         self.identity_store = IdentityStore(path=identity_path)
         self.identity = self.identity_store.get()
 
-        # Memory
+        # Memory (explicit lifecycle)
         self.memory = MemoryStore(db_path=memory_path)
+        self.memory.open()
 
         # World
         self.world = World(width=world_size[0], height=world_size[1])
@@ -71,7 +67,7 @@ class SystemBootstrap:
         self.health = HealthAnalyzer()
         self.phase = PhaseAnalyzer()
 
-        # Optional agent
+        # Agent
         self.enable_autonomy = bool(enable_autonomy)
         self.agent = A7DOAgent(self.memory)
 
@@ -97,7 +93,8 @@ class SystemBootstrap:
     # --------------------------------------------------------
 
     def close(self) -> None:
-        self.memory.close()
+        if self.memory:
+            self.memory.close()
 
     # --------------------------------------------------------
     # External control
@@ -130,9 +127,7 @@ class SystemBootstrap:
             self.memory.append(e)
             emitted.append(e)
 
-        internal_events = self.bg.step()
-        emitted.extend(internal_events)
-
+        emitted.extend(self.bg.step())
         self.agent.observe_outcomes()
 
         if self.enable_autonomy:
@@ -144,7 +139,6 @@ class SystemBootstrap:
                 world_events = self.world.step(act)
                 self.memory.append_many(world_events)
                 emitted.extend(world_events)
-
                 emitted.extend(self.bg.step())
 
         percepts = self.perception.process(emitted)
@@ -156,23 +150,17 @@ class SystemBootstrap:
 
     def _bundle(self, emitted: List[Event], percepts: List[Percept]) -> StepResult:
         recent = self.memory.recent(200)
-        health = self.health.analyze(recent)
-        phase = self.phase.analyze(recent)
-
         return StepResult(
             emitted_events=emitted,
             percepts=percepts,
-            health=health,
-            phase=phase,
+            health=self.health.analyze(recent),
+            phase=self.phase.analyze(recent),
             identity=self.identity,
             world_snapshot=self.world.snapshot(),
         )
 
     def snapshot(self) -> Dict[str, Any]:
         recent = self.memory.recent(200)
-        health = self.health.analyze(recent)
-        phase = self.phase.analyze(recent)
-
         return {
             "identity": {
                 "identity_id": self.identity.identity_id,
@@ -181,6 +169,6 @@ class SystemBootstrap:
                 "continuity_version": self.identity.continuity_version,
             },
             "world": self.world.snapshot(),
-            "health": health.__dict__,
-            "phase": phase.__dict__,
+            "health": self.health.analyze(recent).__dict__,
+            "phase": self.phase.analyze(recent).__dict__,
         }
