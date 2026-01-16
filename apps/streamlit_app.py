@@ -1,3 +1,7 @@
+# ============================================================
+# Streamlit entrypoint for A7DO
+# ============================================================
+
 import sys
 from pathlib import Path
 
@@ -19,14 +23,23 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from bootstrap.system import SystemBootstrap
+from shared.events import EventType
 
 
 # ============================================================
 # Streamlit Setup
 # ============================================================
 
-st.set_page_config(page_title="A7DO Control Room", layout="wide")
-st.title("A7DO — Living System Control Room")
+st.set_page_config(
+    page_title="A7DO Control Room",
+    layout="wide",
+)
+
+st.title("A7DO — Living Cognitive System")
+
+# ------------------------------------------------------------
+# Session state
+# ------------------------------------------------------------
 
 if "system" not in st.session_state:
     st.session_state.system = SystemBootstrap(enable_autonomy=False)
@@ -41,7 +54,8 @@ system: SystemBootstrap = st.session_state.system
 st.sidebar.header("Controls")
 
 system.enable_autonomy = st.sidebar.checkbox(
-    "Enable Autonomy", value=system.enable_autonomy
+    "Enable Autonomy",
+    value=system.enable_autonomy,
 )
 
 if st.sidebar.button("Background Step"):
@@ -60,22 +74,22 @@ tab_world, tab_health, tab_memory = st.tabs(
     ["🌍 World", "📈 Health & Phase", "🧠 Memory"]
 )
 
-# ------------------------------------------------------------
+# ============================================================
 # 🌍 WORLD TAB
-# ------------------------------------------------------------
+# ============================================================
 
 with tab_world:
     st.subheader("World")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col_left, col_mid, col_right = st.columns([1, 2, 1])
 
-    with col1:
+    with col_left:
         if st.button("⬆️"):
             system.apply_move(0, -1)
         if st.button("⬇️"):
             system.apply_move(0, 1)
 
-    with col3:
+    with col_right:
         if st.button("⬅️"):
             system.apply_move(-1, 0)
         if st.button("➡️"):
@@ -83,7 +97,7 @@ with tab_world:
 
     world = system.world.snapshot()
     size_x, size_y = world["size"]
-    agent = world["agent"]
+    agent = world.get("agent")
 
     grid = np.zeros((size_y, size_x))
     if agent:
@@ -97,29 +111,37 @@ with tab_world:
     ax.grid(True)
     ax.set_xticklabels([])
     ax.set_yticklabels([])
-
     st.pyplot(fig)
 
-# ------------------------------------------------------------
+
+# ============================================================
 # 📈 HEALTH & PHASE TAB
-# ------------------------------------------------------------
+# ============================================================
 
 with tab_health:
-    st.subheader("Internal State")
+    st.subheader("Internal Regulation")
 
-    recent = system.memory.recent(200)
+    # Pull recent memory
+    recent_events = system.memory.recent(300)
+
+    # --------------------------------------------------------
+    # Build dataframe from INTERNAL events
+    # --------------------------------------------------------
+
     rows = []
-
-    for e in recent:
-        if e.type.value == "internal" and e.name == "state_update":
-            s = e.payload.get("state", {})
+    for e in recent_events:
+        if (
+            e.type == EventType.INTERNAL
+            and e.name in ("state_update", "light_tick")
+        ):
+            state = e.payload.get("state", {})
             rows.append(
                 {
-                    "arousal": s.get("arousal"),
-                    "confidence": s.get("confidence"),
-                    "confidence_floor": s.get("confidence_floor"),
-                    "uncertainty": s.get("uncertainty"),
-                    "curiosity": s.get("curiosity"),
+                    "arousal": state.get("arousal"),
+                    "confidence": state.get("confidence"),
+                    "confidence_floor": state.get("confidence_floor"),
+                    "uncertainty": state.get("uncertainty"),
+                    "curiosity": state.get("curiosity"),
                 }
             )
 
@@ -138,25 +160,31 @@ with tab_health:
             ]
         )
     else:
-        st.info("No internal state data yet.")
+        st.info("No internal state data yet — system is stabilising.")
 
-    snap = system.snapshot()
+    # --------------------------------------------------------
+    # Health + Phase snapshots
+    # --------------------------------------------------------
+
+    snapshot = system.snapshot()
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Health")
-        st.json(snap["health"])
+        st.subheader("Health Snapshot")
+        st.json(snapshot["health"])
 
     with col2:
-        st.subheader("Phase")
-        st.json(snap["phase"])
+        st.subheader("Phase Snapshot")
+        st.json(snapshot["phase"])
 
-# ------------------------------------------------------------
+
+# ============================================================
 # 🧠 MEMORY TAB
-# ------------------------------------------------------------
+# ============================================================
 
 with tab_memory:
-    st.subheader("Recent Events")
+    st.subheader("Recent Memory Events")
 
-    for e in system.memory.recent(30):
+    for e in system.memory.recent(40):
         st.text(e.summary())
