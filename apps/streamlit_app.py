@@ -1,11 +1,17 @@
 import sys
 from pathlib import Path
 
-# Ensure project root is on PYTHONPATH (required for Streamlit)
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# ------------------------------------------------------------
+# Ensure project root is on PYTHONPATH (Streamlit requirement)
+# ------------------------------------------------------------
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# ------------------------------------------------------------
+# Imports
+# ------------------------------------------------------------
 
 import streamlit as st
 import numpy as np
@@ -15,29 +21,24 @@ import matplotlib.pyplot as plt
 from bootstrap.system import SystemBootstrap
 
 
-
 # ============================================================
-# Setup
+# Streamlit Setup
 # ============================================================
 
-st.set_page_config(
-    page_title="A7DO Control Room",
-    layout="wide",
-)
-
+st.set_page_config(page_title="A7DO Control Room", layout="wide")
 st.title("A7DO — Living System Control Room")
 
 if "system" not in st.session_state:
     st.session_state.system = SystemBootstrap(enable_autonomy=False)
 
-system = st.session_state.system
+system: SystemBootstrap = st.session_state.system
 
 
 # ============================================================
-# Sidebar Controls (Global)
+# Sidebar Controls
 # ============================================================
 
-st.sidebar.header("Global Controls")
+st.sidebar.header("Controls")
 
 system.enable_autonomy = st.sidebar.checkbox(
     "Enable Autonomy", value=system.enable_autonomy
@@ -46,16 +47,17 @@ system.enable_autonomy = st.sidebar.checkbox(
 if st.sidebar.button("Background Step"):
     system.step()
 
-if st.sidebar.button("Hard Refresh (UI only)"):
-    st.rerun()
+if st.sidebar.button("Shutdown System"):
+    system.close()
+    st.stop()
 
 
 # ============================================================
 # Tabs
 # ============================================================
 
-tab_world, tab_health, tab_memory, tab_settings = st.tabs(
-    ["🌍 World", "📈 Health & Phase", "🧠 Memory", "⚙️ Settings"]
+tab_world, tab_health, tab_memory = st.tabs(
+    ["🌍 World", "📈 Health & Phase", "🧠 Memory"]
 )
 
 # ------------------------------------------------------------
@@ -103,11 +105,11 @@ with tab_world:
 # ------------------------------------------------------------
 
 with tab_health:
-    st.subheader("Internal State Over Time")
+    st.subheader("Internal State")
 
     recent = system.memory.recent(200)
-
     rows = []
+
     for e in recent:
         if e.type.value == "internal" and e.name == "state_update":
             s = e.payload.get("state", {})
@@ -125,14 +127,22 @@ with tab_health:
 
     if not df.empty:
         st.line_chart(
-            df[["arousal", "confidence", "confidence_floor", "uncertainty", "curiosity"]]
+            df[
+                [
+                    "arousal",
+                    "confidence",
+                    "confidence_floor",
+                    "uncertainty",
+                    "curiosity",
+                ]
+            ]
         )
     else:
         st.info("No internal state data yet.")
 
     snap = system.snapshot()
-
     col1, col2 = st.columns(2)
+
     with col1:
         st.subheader("Health")
         st.json(snap["health"])
@@ -148,26 +158,5 @@ with tab_health:
 with tab_memory:
     st.subheader("Recent Events")
 
-    for e in system.memory.recent(25):
+    for e in system.memory.recent(30):
         st.text(e.summary())
-
-# ------------------------------------------------------------
-# ⚙️ SETTINGS TAB
-# ------------------------------------------------------------
-
-with tab_settings:
-    st.subheader("System Identity")
-
-    st.json(
-        {
-            "identity_id": system.identity.identity_id,
-            "genesis_id": system.identity.genesis_id,
-            "incarnation": system.identity.incarnation,
-            "continuity_version": system.identity.continuity_version,
-        }
-    )
-
-    st.warning(
-        "Core modules are frozen. "
-        "Only bootstrap and UI layers may change."
-    )
