@@ -12,3 +12,7 @@ The system combines:
 
 The project prioritizes learning over training, persistence over reactivity,
 and safety, explainability, and bounded autonomy throughout.
+
+Copyright 2026 Alexander Ormiston MacLeod
+
+Licensed under the Apache License, Version 2.0
