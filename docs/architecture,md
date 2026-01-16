@@ -1,1 +1,271 @@
+# Sandy’s Law — System Architecture (Canonical)
+
+This document is the authoritative architecture definition for the unified system:
+A7DO (embodied developmental AI) + World (objective environment) + Background Core
+(always-on cognition) + SLED (entropy/phase decision engine).
+
+Code must implement this document. If code contradicts this document, code is wrong.
+
+---
+
+## 1. Purpose
+
+This system exists to explore and implement a unified model of emergence:
+
+- Intelligence forms from **structure + persistence + experience**
+- Meaning forms from **interaction**, not labels
+- Stability and collapse are governed by **Sandy’s Law-like constraints**
+- Time is not a global driver; **event persistence** produces duration
+
+End goal: A7DO is a persistent embodied system that:
+- knows it exists continuously (continuity),
+- learns from experience (not preloaded knowledge),
+- forms preferences (like/not-like),
+- chooses actions (bounded agency),
+- and can interact with the user through chat, grounded in real events.
+
+---
+
+## 2. Core Invariants (Non-Negotiable)
+
+These invariants apply across all modules and documents.
+
+### I1 — Event-Based Reality (No Global Time)
+The system is driven by events, not wall-clock time.
+Any sense of "duration" is derived from:
+- event counts,
+- persistence of internal state,
+- and memory consolidation cycles.
+
+Clock timestamps may exist only for logging, never for causal logic.
+
+### I2 — World Has No Semantics
+The World never provides labels like “TV”, “door”, “room”.
+World emits only raw facts and interaction outcomes:
+- positions, collisions, contact forces, occlusion, identifiers.
+
+Meaning is constructed inside A7DO via perception + memory.
+
+### I3 — A7DO Has No Privileged Truth
+A7DO never reads the World’s internal truth directly.
+A7DO may be wrong.
+A7DO must correct itself via observation and prediction error.
+
+### I4 — Background Core Always Runs
+A7DO is not merely reactive.
+Even with no external inputs, internal processes continue:
+- emotion regulation,
+- introspection,
+- memory consolidation,
+- drive pressure building,
+- preference update.
+
+### I5 — Stability Governs Growth
+The system must prevent destructive collapse modes:
+- Zeno-like runaway loops,
+- memory corruption cascades,
+- persistent high arousal without recovery,
+- unbounded autonomy without safety checks.
+
+Health monitoring is mandatory.
+
+---
+
+## 3. System Components
+
+The system is composed of four primary domains plus a shared integration layer.
+
+### 3.1 World (Objective Reality)
+**Role:** Defines the environment and physics.
+**No cognition. No emotion. No intent.**
+
+World responsibilities:
+- maintain the environment state (grid or later 2.5D/3D),
+- simulate physics rules (collision, friction, visibility),
+- apply interactions (open/close, pick/place, contact),
+- emit observation/outcome events.
+
+World cannot:
+- infer meaning,
+- evaluate preferences,
+- talk,
+- decide goals.
+
+### 3.2 A7DO (Cognitive Organism)
+**Role:** Subjective interpretation + learning + decision-making.
+
+A7DO responsibilities:
+- perception (object binding, scene graph),
+- memory (episodic, semantic, procedural),
+- self-model (identity, needs, emotions),
+- reasoning (prediction, planning, critique),
+- language grounding and dialogue.
+
+A7DO cannot:
+- directly access World truth,
+- bypass policies,
+- redefine system invariants.
+
+### 3.3 Background Core (Continuous Cognition)
+**Role:** Maintains continuity and growth even during inactivity.
+
+Background Core responsibilities:
+- homeostasis: stabilize arousal/confidence/uncertainty,
+- consolidation: compress episodic into semantic patterns,
+- introspection: detect unresolved contradictions,
+- motivation: generate pressure for exploration or help-seeking,
+- preference shaping: update like/not-like from internal costs.
+
+Background Core does not:
+- control World physics,
+- override safety or permission boundaries.
+
+### 3.4 SLED (Entropy / Phase Decision Engine)
+**Role:** A domain-agnostic phase engine that detects:
+- stability wells,
+- clustering,
+- transition precursors,
+- expiry/Zenolike failure conditions.
+
+SLED responsibilities:
+- compute phase signals over event streams,
+- detect persistence vs crowding vs escape dynamics,
+- output risk/stability recommendations.
+
+SLED does not:
+- act directly (it advises),
+- replace A7DO’s self-model,
+- assign semantic meaning.
+
+### 3.5 Shared Integration Layer (The Only Interface)
+**Role:** Defines the common language and persistence substrate.
+
+Shared responsibilities:
+- event schema (unified Event model),
+- memory persistence contracts,
+- system health metrics,
+- typed schemas used across domains.
+
+No domain code may “reach across” without going through shared contracts.
+
+---
+
+## 4. Communication Contract (Event Bus)
+
+All communication across domains occurs via Events.
+
+Event categories:
+- OBSERVATION: sensed from world/body
+- ACTION: intended act by A7DO
+- OUTCOME: result of an action / world response
+- INTERNAL: emotion updates, thought steps, drive shifts
+- SYSTEM: startup/shutdown/warnings/health alerts
+
+Causality:
+- events may link via `parent_id` to express “this outcome came from that action”.
+
+Events are immutable. Interpretation happens in A7DO.
+
+---
+
+## 5. Memory Contract
+
+Memory is a first-class substrate, not an afterthought.
+
+Memory types:
+- Episodic: raw event stream (“what happened”)
+- Semantic: compressed patterns and concepts (“what it is”)
+- Procedural: skills (“how to do”)
+
+Rules:
+- World writes nothing to memory directly.
+- A7DO and Background Core write memory.
+- SLED may read memory and write derived metrics (separately tagged).
+
+Persistence:
+- Memory must survive restarts.
+- Identity continuity depends on memory integrity.
+
+---
+
+## 6. Autonomy & Safety Boundaries (Architectural)
+
+A7DO autonomy is bounded by policy gates.
+
+Architectural constraints:
+- A7DO may propose actions, not execute arbitrary OS-level operations.
+- External integrations (internet, file system, financial execution) require explicit permission layers.
+- Safety checks can veto actions at the last moment.
+
+The permission model must be explicit and auditable.
+
+---
+
+## 7. Development Model (Phased Growth)
+
+A7DO grows by phases. Capabilities are unlocked by milestones, not by shortcuts.
+
+High-level phases:
+1. Genesis (reactive infant): sensing + episodic memory only
+2. Explorer: object permanence, novelty seeking, simple plans
+3. Conversational: grounded language about observed experience
+4. Reflective: introspection, self-explanation, long-horizon stability
+
+Unlock gates must be defined in `docs/milestones.md`.
+
+---
+
+## 8. Observability & Debugging
+
+The system must remain inspectable.
+
+Required:
+- deterministic seeds where possible,
+- event logs,
+- replay tools (event playback to reproduce behaviors),
+- health dashboard metrics (arousal, confidence, stability, Zeno risk),
+- clear module boundaries.
+
+---
+
+## 9. Minimal Build Order (Implementation Sequence)
+
+Implementation must follow contract-first development:
+
+1. shared/events.py (canonical event schema)
+2. shared/memory.py (persistence contract)
+3. docs/genesis.md (initial conditions)
+4. a7do/background_core (homeostasis + consolidation loop)
+5. world/world.py (objective environment emitting observations)
+6. apps/chat_cli.py (grounded user interaction)
+7. sled/phase modules (risk/stability overlay)
+8. UI (Streamlit) last
+
+---
+
+## 10. Definition of “Success” (Architectural)
+
+A7DO is considered architecturally successful when it can:
+
+- persist identity across restarts (memory continuity),
+- describe its internal state (arousal/confidence/uncertainty) truthfully,
+- learn “like/not-like” preferences from experience,
+- form object permanence without labels,
+- choose between actions based on prediction + internal state,
+- and hold a grounded conversation with the user about what it observed and why it acted.
+
+---
+
+## 11. Non-Goals (To Avoid Drift)
+
+This project does NOT aim to:
+- replicate human consciousness claims,
+- simulate human emotions as literal human experience,
+- shortcut learning by hardcoding semantics,
+- optimize performance prematurely,
+- add heavyweight ML before contracts are stable.
+
+---
+
+End of Canonical Architecture.
 
