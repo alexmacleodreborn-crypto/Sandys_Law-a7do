@@ -56,8 +56,8 @@ class SystemBootstrap:
 
         # Memory (explicit lifecycle)
         self.memory = MemoryStore(db_path=memory_path)
-        self.memory.open()
-
+        self.memory.__enter__()
+        
         # World
         self.world = World(width=world_size[0], height=world_size[1])
 
@@ -93,8 +93,8 @@ class SystemBootstrap:
     # --------------------------------------------------------
 
     def close(self) -> None:
-        if self.memory:
-            self.memory.close()
+    if self.memory:
+        self.memory.__exit__(None, None, None)
 
     # --------------------------------------------------------
     # External control
