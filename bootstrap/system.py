@@ -94,7 +94,7 @@ class SystemBootstrap:
 
     def close(self) -> None:
         if self.memory:
-        self.memory.__exit__(None, None, None)
+            self.memory.__exit__(None, None, None)
 
     # --------------------------------------------------------
     # External control
