@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional
 
 from shared.events import Event, EventType
 
@@ -104,10 +104,14 @@ class HealthAnalyzer:
 
     def _latest_internal_state(self, events: List[Event]) -> Dict[str, Optional[float]]:
         """
-        Finds the most recent Background Core state_update.
+        Finds the most recent Background Core internal state.
+
+        Accepts:
+        - full cycles  → state_update
+        - light ticks  → light_tick
         """
         for e in reversed(events):
-            if e.type == EventType.INTERNAL and e.name == "state_update":
+            if e.type == EventType.INTERNAL and e.name in ("state_update", "light_tick"):
                 state = e.payload.get("state", {})
                 return {
                     "arousal": state.get("arousal"),
@@ -142,7 +146,6 @@ class HealthAnalyzer:
         if len(internal_events) < 5:
             return 0.0
 
-        # High arousal + low confidence + dense internal cycling
         density = min(1.0, len(internal_events) / max(1, len(events)))
         risk = 0.0
 
@@ -195,4 +198,3 @@ class HealthAnalyzer:
             return min(1.0, curiosity)
 
         return 0.0
-
