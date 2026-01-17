@@ -7,6 +7,7 @@ from a7do.background_core.core import BackgroundCore
 from a7do.perception.perception import Percept, PerceptionEngine
 from a7do.core.agent import A7DOAgent
 from a7do.state.identity import IdentityStore, IdentityRecord
+from a7do.cognition.prediction import PredictionEngine
 
 from shared.events import Event, action, observation, system_event
 from shared.memory import MemoryStore
@@ -31,20 +32,19 @@ class StepResult:
 
 
 # ============================================================
-# System Bootstrap (Coupling Only)
+# System Bootstrap (Coupling / Ordering Only)
 # ============================================================
 
 class SystemBootstrap:
     """
     Coupling layer only.
 
-    Owns:
-    - lifecycle
-    - ordering
-    - module wiring
+    Responsibilities:
+    - Lifecycle ownership
+    - Ordering guarantees
+    - Module wiring
 
-    Contains:
-    - NO domain logic
+    Contains NO domain logic.
     """
 
     def __init__(
@@ -64,7 +64,7 @@ class SystemBootstrap:
         self.identity = self.identity_store.get()
 
         # ----------------------------
-        # Memory (context-managed)
+        # Memory (explicit lifecycle)
         # ----------------------------
         self.memory = MemoryStore(db_path=memory_path)
         self.memory.__enter__()
@@ -81,6 +81,7 @@ class SystemBootstrap:
         self.perception = PerceptionEngine()
         self.health = HealthAnalyzer()
         self.phase = PhaseAnalyzer()
+        self.predictor = PredictionEngine()
 
         # ----------------------------
         # Agent
@@ -89,7 +90,7 @@ class SystemBootstrap:
         self.agent = A7DOAgent(self.memory)
 
         # ----------------------------
-        # Spawn + boot event
+        # Spawn + boot
         # ----------------------------
         spawn_events = self.world.spawn_agent(spawn_at[0], spawn_at[1])
         self.memory.append_many(spawn_events)
@@ -106,7 +107,7 @@ class SystemBootstrap:
             )
         )
 
-        # Important: run one background tick so health has initial state immediately
+        # Initial background tick so health is valid immediately
         self.bg.step()
 
     # --------------------------------------------------------
@@ -120,19 +121,10 @@ class SystemBootstrap:
             pass
 
     # --------------------------------------------------------
-    # External control
+    # External control (movement)
     # --------------------------------------------------------
 
     def apply_move(self, dx: int, dy: int, source: str = "user") -> StepResult:
-        """
-        Apply a movement action.
-
-        Ordering is important:
-        - record action
-        - advance world
-        - record world events
-        - run background regulation (so health stays synced)
-        """
         emitted: List[Event] = []
 
         # Action
@@ -145,28 +137,29 @@ class SystemBootstrap:
         self.memory.append_many(world_events)
         emitted.extend(world_events)
 
-        # Background regulation MUST run after experience is recorded
-        internal_events = self.bg.step()
-        emitted.extend(internal_events)
+        # Prediction error (action → outcome)
+        pred_events = self.predictor.observe(emitted)
+        if pred_events:
+            self.memory.append_many(pred_events)
+            emitted.extend(pred_events)
 
-        # Agent can observe outcomes (no mutation here)
+        # Background regulation AFTER prediction resolution
+        emitted.extend(self.bg.step())
+
+        # Agent observes outcomes (no mutation here)
         self.agent.observe_outcomes()
 
-        # Perception from emitted events
         percepts = self.perception.process(emitted)
-
         return self._bundle(emitted, percepts)
 
+    # --------------------------------------------------------
+    # System tick
+    # --------------------------------------------------------
+
     def step(self, user_text: Optional[str] = None) -> StepResult:
-        """
-        One system tick.
-        - Optional user utterance
-        - Background regulation
-        - Optional autonomy action -> world step -> background regulation again
-        """
         emitted: List[Event] = []
 
-        # User utterance becomes an observation event
+        # Optional user utterance
         if user_text:
             e = observation(
                 source="user",
@@ -176,7 +169,7 @@ class SystemBootstrap:
             self.memory.append(e)
             emitted.append(e)
 
-        # Background tick
+        # Background regulation
         emitted.extend(self.bg.step())
         self.agent.observe_outcomes()
 
@@ -191,7 +184,13 @@ class SystemBootstrap:
                 self.memory.append_many(world_events)
                 emitted.extend(world_events)
 
-                # Regulation after autonomy experiences
+                # Prediction error
+                pred_events = self.predictor.observe(emitted)
+                if pred_events:
+                    self.memory.append_many(pred_events)
+                    emitted.extend(pred_events)
+
+                # Regulation after autonomy
                 emitted.extend(self.bg.step())
 
         percepts = self.perception.process(emitted)
