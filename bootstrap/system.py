@@ -4,14 +4,17 @@ import sys
 from pathlib import Path
 
 # ------------------------------------------------------------
-# Ensure project root is on PYTHONPATH
-# (required for Streamlit + CLI consistency)
+# Ensure PROJECT ROOT is on PYTHONPATH
+# bootstrap/system.py → parents[2] = repo root
 # ------------------------------------------------------------
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# ------------------------------------------------------------
+# Imports (now safe)
+# ------------------------------------------------------------
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -77,7 +80,7 @@ class SystemBootstrap:
         self.identity = self.identity_store.get()
 
         # ----------------------------
-        # Memory (explicit lifecycle)
+        # Memory
         # ----------------------------
         self.memory = MemoryStore(db_path=memory_path)
         self.memory.__enter__()
@@ -120,7 +123,7 @@ class SystemBootstrap:
             )
         )
 
-        # Initial background tick so health is valid immediately
+        # Initial regulation tick
         self.bg.step()
 
     # --------------------------------------------------------
@@ -134,7 +137,7 @@ class SystemBootstrap:
             pass
 
     # --------------------------------------------------------
-    # External control (movement)
+    # External control
     # --------------------------------------------------------
 
     def apply_move(self, dx: int, dy: int, source: str = "user") -> StepResult:
@@ -150,29 +153,22 @@ class SystemBootstrap:
         self.memory.append_many(world_events)
         emitted.extend(world_events)
 
-        # Prediction error (action → outcome)
+        # Prediction error
         pred_events = self.predictor.observe(emitted)
         if pred_events:
             self.memory.append_many(pred_events)
             emitted.extend(pred_events)
 
-        # Background regulation AFTER prediction resolution
+        # Background regulation
         emitted.extend(self.bg.step())
 
-        # Agent observes outcomes (no mutation here)
         self.agent.observe_outcomes()
-
         percepts = self.perception.process(emitted)
         return self._bundle(emitted, percepts)
-
-    # --------------------------------------------------------
-    # System tick
-    # --------------------------------------------------------
 
     def step(self, user_text: Optional[str] = None) -> StepResult:
         emitted: List[Event] = []
 
-        # Optional user utterance
         if user_text:
             e = observation(
                 source="user",
@@ -182,11 +178,9 @@ class SystemBootstrap:
             self.memory.append(e)
             emitted.append(e)
 
-        # Background regulation
         emitted.extend(self.bg.step())
         self.agent.observe_outcomes()
 
-        # Optional autonomy
         if self.enable_autonomy:
             act = self.agent.decide()
             if act:
@@ -197,13 +191,11 @@ class SystemBootstrap:
                 self.memory.append_many(world_events)
                 emitted.extend(world_events)
 
-                # Prediction error
                 pred_events = self.predictor.observe(emitted)
                 if pred_events:
                     self.memory.append_many(pred_events)
                     emitted.extend(pred_events)
 
-                # Regulation after autonomy
                 emitted.extend(self.bg.step())
 
         percepts = self.perception.process(emitted)
