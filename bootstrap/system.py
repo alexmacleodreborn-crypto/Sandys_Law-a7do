@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # ------------------------------------------------------------
-# Imports (now safe)
+# Imports
 # ------------------------------------------------------------
 
 from dataclasses import dataclass
@@ -23,7 +23,9 @@ from a7do.background_core.core import BackgroundCore
 from a7do.perception.perception import Percept, PerceptionEngine
 from a7do.core.agent import A7DOAgent
 from a7do.state.identity import IdentityStore, IdentityRecord
+
 from a7do.cognition.prediction import PredictionEngine
+from a7do.cognition.boundary import BoundaryDetector
 
 from shared.events import Event, action, observation, system_event
 from shared.memory import MemoryStore
@@ -97,7 +99,9 @@ class SystemBootstrap:
         self.perception = PerceptionEngine()
         self.health = HealthAnalyzer()
         self.phase = PhaseAnalyzer()
+
         self.predictor = PredictionEngine()
+        self.boundary = BoundaryDetector()
 
         # ----------------------------
         # Agent
@@ -123,7 +127,7 @@ class SystemBootstrap:
             )
         )
 
-        # Initial regulation tick
+        # Initial regulation tick (ensures health is valid immediately)
         self.bg.step()
 
     # --------------------------------------------------------
@@ -137,7 +141,7 @@ class SystemBootstrap:
             pass
 
     # --------------------------------------------------------
-    # External control
+    # External control (movement)
     # --------------------------------------------------------
 
     def apply_move(self, dx: int, dy: int, source: str = "user") -> StepResult:
@@ -153,22 +157,35 @@ class SystemBootstrap:
         self.memory.append_many(world_events)
         emitted.extend(world_events)
 
-        # Prediction error
+        # Prediction error (expectation vs outcome)
         pred_events = self.predictor.observe(emitted)
         if pred_events:
             self.memory.append_many(pred_events)
             emitted.extend(pred_events)
 
-        # Background regulation
+        # Boundary detection (continuous resistance)
+        boundary_events = self.boundary.observe(emitted)
+        if boundary_events:
+            self.memory.append_many(boundary_events)
+            emitted.extend(boundary_events)
+
+        # Background regulation AFTER experience is resolved
         emitted.extend(self.bg.step())
 
+        # Agent observes outcomes (no mutation)
         self.agent.observe_outcomes()
+
         percepts = self.perception.process(emitted)
         return self._bundle(emitted, percepts)
+
+    # --------------------------------------------------------
+    # System tick
+    # --------------------------------------------------------
 
     def step(self, user_text: Optional[str] = None) -> StepResult:
         emitted: List[Event] = []
 
+        # Optional user utterance
         if user_text:
             e = observation(
                 source="user",
@@ -178,9 +195,11 @@ class SystemBootstrap:
             self.memory.append(e)
             emitted.append(e)
 
+        # Background regulation
         emitted.extend(self.bg.step())
         self.agent.observe_outcomes()
 
+        # Optional autonomy
         if self.enable_autonomy:
             act = self.agent.decide()
             if act:
@@ -191,11 +210,19 @@ class SystemBootstrap:
                 self.memory.append_many(world_events)
                 emitted.extend(world_events)
 
+                # Prediction error
                 pred_events = self.predictor.observe(emitted)
                 if pred_events:
                     self.memory.append_many(pred_events)
                     emitted.extend(pred_events)
 
+                # Boundary detection
+                boundary_events = self.boundary.observe(emitted)
+                if boundary_events:
+                    self.memory.append_many(boundary_events)
+                    emitted.extend(boundary_events)
+
+                # Regulation after autonomy
                 emitted.extend(self.bg.step())
 
         percepts = self.perception.process(emitted)
