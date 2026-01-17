@@ -16,24 +16,21 @@ class BackgroundState:
     """
     Minimal persistent internal state for Background Core.
 
-    NOTE:
-    - This is not "human emotion".
-    - These are regulatory control variables.
-    - Values are bounded and change gradually.
+    These are regulatory variables, not emotions.
     """
 
-    arousal: float = 0.15          # [0..1]
-    valence: float = 0.0           # [-1..1]
-    confidence: float = 0.10       # [0..1]
-    confidence_floor: float = 0.05 # [0..1]
-    uncertainty: float = 0.85      # [0..1]
-    curiosity: float = 0.25        # [0..1]
+    arousal: float = 0.15
+    valence: float = 0.0
+    confidence: float = 0.10
+    confidence_floor: float = 0.05
+    uncertainty: float = 0.85
+    curiosity: float = 0.25
 
-    # Counters (event-count based)
+    # Cursor + counters
     last_seen_seq: int = 0
     cycles: int = 0
 
-    # Burnout / Zeno tracking
+    # Stability tracking
     consecutive_high_arousal_cycles: int = 0
     consecutive_low_recovery_cycles: int = 0
 
@@ -62,13 +59,13 @@ class BackgroundConfig:
     curiosity_rise_on_stagnation: float = 0.03
     curiosity_decay_on_novelty: float = 0.02
 
-    # Surprise / novelty
+    # Surprise impact
     arousal_bump_on_observation: float = 0.015
     arousal_bump_on_failure: float = 0.06
     confidence_drop_on_failure: float = 0.04
     confidence_rise_on_success: float = 0.02
 
-    # Confidence floor dynamics
+    # Confidence floor
     confidence_floor_rise_on_recovery: float = 0.01
     confidence_floor_max: float = 0.60
 
@@ -76,7 +73,7 @@ class BackgroundConfig:
     cycle_event_threshold: int = 10
     stagnation_event_threshold: int = 0
 
-    # Burnout / Zeno guards
+    # Burnout guards
     high_arousal_threshold: float = 0.85
     low_recovery_threshold: float = 0.12
     high_arousal_cycle_limit: int = 6
@@ -91,32 +88,37 @@ class BackgroundCore:
     """
     Always-on cognitive regulator.
 
-    - No planning
-    - No action choice
-    - Only regulation and warnings
+    Uses event counts, not time.
+    Emits INTERNAL and SYSTEM events only.
     """
 
-    def __init__(self, memory: MemoryStore, config: Optional[BackgroundConfig] = None) -> None:
-    self.memory = memory
-    self.cfg = config or BackgroundConfig()
+    def __init__(
+        self,
+        memory: MemoryStore,
+        config: Optional[BackgroundConfig] = None,
+    ) -> None:
+        self.memory = memory
+        self.cfg = config or BackgroundConfig()
 
-    # IMPORTANT: initialize state explicitly
-    self.state = BackgroundState()
+        # REQUIRED: explicit state creation
+        self.state = BackgroundState()
 
-    # Start reading AFTER current memory tail
-    self.state.last_seen_seq = self.memory.last_seq()
+        # Start reading AFTER existing memory
+        self.state.last_seen_seq = self.memory.last_seq()
 
     # --------------------------------------------------------
     # Public API
     # --------------------------------------------------------
 
     def step(self) -> List[Event]:
+        """
+        Advance background regulation if new events exist.
+        """
         new_events = list(self.memory.iter_since(self.state.last_seen_seq))
         new_count = len(new_events)
-        last_seq = self.state.last_seen_seq
 
         if new_events:
-            last_seq = new_events[-1][0]
+            self.state.last_seen_seq = new_events[-1][0]
 
         if new_count >= self.cfg.cycle_event_threshold:
             emitted = self._cycle(new_events, stagnation=False)
@@ -125,18 +127,20 @@ class BackgroundCore:
         else:
             emitted = self._light_tick(new_count)
 
-        self.state.last_seen_seq = last_seq
-
         if emitted:
             self.memory.append_many(emitted)
 
         return emitted
 
     # --------------------------------------------------------
-    # Internal Logic
+    # Regulation Logic
     # --------------------------------------------------------
 
-    def _cycle(self, new_events: List[Tuple[int, Event]], stagnation: bool) -> List[Event]:
+    def _cycle(
+        self,
+        new_events: List[Tuple[int, Event]],
+        stagnation: bool,
+    ) -> List[Event]:
         prev = self._snapshot()
         signal = self._extract_signals(new_events)
 
@@ -149,16 +153,15 @@ class BackgroundCore:
         self._apply_confidence_floor_logic(prev)
         warnings = self._burnout_guard(prev)
 
-        emitted: List[Event] = [
+        emitted = [
             internal(
                 source="background_core",
                 name="state_update",
                 payload={
                     "cycles": self.state.cycles,
                     "stagnation": stagnation,
-                    "delta": self._delta(prev),
-                    "state": self._snapshot(),
                     "signal": signal,
+                    "state": self._snapshot(),
                 },
                 confidence=self.state.confidence,
             )
@@ -202,10 +205,13 @@ class BackgroundCore:
         ]
 
     # --------------------------------------------------------
-    # Signal Extraction
+    # Helpers
     # --------------------------------------------------------
 
-    def _extract_signals(self, new_events: List[Tuple[int, Event]]) -> Dict[str, float]:
+    def _extract_signals(
+        self,
+        new_events: List[Tuple[int, Event]],
+    ) -> Dict[str, float]:
         obs = act = outc = intr = sys = 0
         failures = successes = 0
 
@@ -228,7 +234,6 @@ class BackgroundCore:
 
         total = max(1, len(new_events))
         failure_rate = failures / max(1, failures + successes)
-        activity = (obs + act + outc) / total
 
         return {
             "new_total": float(len(new_events)),
@@ -238,12 +243,8 @@ class BackgroundCore:
             "internal": float(intr),
             "system": float(sys),
             "failure_rate": float(failure_rate),
-            "activity_ratio": float(activity),
+            "activity_ratio": float((obs + act + outc) / total),
         }
-
-    # --------------------------------------------------------
-    # Regulation
-    # --------------------------------------------------------
 
     def _apply_experience(self, signal: Dict[str, float]) -> None:
         self.state.arousal += self.cfg.arousal_bump_on_observation * (
@@ -258,7 +259,7 @@ class BackgroundCore:
         success = max(0.0, 1.0 - signal["failure_rate"])
         self.state.confidence += self.cfg.confidence_rise_on_success * success
         self.state.uncertainty -= self.cfg.uncertainty_decay_on_experience * success
-        self.state.curiosity -= self.cfg.curiosity_decay_on_novelty * min(1.0, signal["activity_ratio"])
+        self.state.curiosity -= self.cfg.curiosity_decay_on_novelty * signal["activity_ratio"]
         self.state.arousal -= self.cfg.arousal_decay
 
     def _apply_stagnation(self) -> None:
@@ -268,18 +269,15 @@ class BackgroundCore:
         if self.state.confidence > self.state.confidence_floor:
             self.state.confidence -= 0.01
 
-    # --------------------------------------------------------
-    # Doctrine Logic
-    # --------------------------------------------------------
-
     def _apply_confidence_floor_logic(self, prev: Dict[str, float]) -> None:
         if self.state.confidence < self.state.confidence_floor:
             self.state.confidence = self.state.confidence_floor
 
         if self.state.arousal < prev["arousal"] and self.state.confidence > prev["confidence"]:
+            self.state.confidence_floor += self.cfg.confidence_floor_rise_on_recovery
             self.state.confidence_floor = min(
+                self.state.confidence_floor,
                 self.cfg.confidence_floor_max,
-                self.state.confidence_floor + self.cfg.confidence_floor_rise_on_recovery,
             )
 
     def _burnout_guard(self, prev: Dict[str, float]) -> List[Event]:
@@ -290,8 +288,8 @@ class BackgroundCore:
         else:
             self.state.consecutive_high_arousal_cycles = 0
 
-        confidence_gain = self.state.confidence - prev["confidence"]
-        if confidence_gain < self.cfg.low_recovery_threshold and self.state.arousal >= prev["arousal"]:
+        gain = self.state.confidence - prev["confidence"]
+        if gain < self.cfg.low_recovery_threshold and self.state.arousal >= prev["arousal"]:
             self.state.consecutive_low_recovery_cycles += 1
         else:
             self.state.consecutive_low_recovery_cycles = 0
@@ -304,7 +302,6 @@ class BackgroundCore:
                     payload={
                         "cycles": self.state.cycles,
                         "arousal": self.state.arousal,
-                        "confidence": self.state.confidence,
                     },
                 )
             )
@@ -329,14 +326,12 @@ class BackgroundCore:
     # --------------------------------------------------------
 
     def _clamp(self, v: float, lo: float, hi: float) -> float:
-        return max(lo, min(hi, float(v)))
+        return max(lo, min(hi, v))
 
     def _clamp_all(self) -> None:
         self.state.arousal = self._clamp(self.state.arousal, self.cfg.arousal_min, self.cfg.arousal_max)
         self.state.confidence = self._clamp(self.state.confidence, self.cfg.confidence_min, self.cfg.confidence_max)
-        self.state.confidence_floor = self._clamp(
-            self.state.confidence_floor, 0.0, self.cfg.confidence_floor_max
-        )
+        self.state.confidence_floor = self._clamp(self.state.confidence_floor, 0.0, self.cfg.confidence_floor_max)
         self.state.uncertainty = self._clamp(self.state.uncertainty, self.cfg.uncertainty_min, self.cfg.uncertainty_max)
         self.state.curiosity = self._clamp(self.state.curiosity, self.cfg.curiosity_min, self.cfg.curiosity_max)
         self.state.valence = self._clamp(self.state.valence, self.cfg.valence_min, self.cfg.valence_max)
@@ -353,4 +348,4 @@ class BackgroundCore:
 
     def _delta(self, prev: Dict[str, float]) -> Dict[str, float]:
         cur = self._snapshot()
-        return {k: cur[k] - prev.get(k, 0.0) for k in cur}
+        return {k: cur[k] - prev[k] for k in cur}
