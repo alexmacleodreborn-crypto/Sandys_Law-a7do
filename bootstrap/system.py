@@ -37,7 +37,14 @@ class StepResult:
 class SystemBootstrap:
     """
     Coupling layer only.
-    Owns lifecycle and ordering.
+
+    Owns:
+    - lifecycle
+    - ordering
+    - module wiring
+
+    Contains:
+    - NO domain logic
     """
 
     def __init__(
@@ -50,32 +57,43 @@ class SystemBootstrap:
         enable_autonomy: bool = False,
     ) -> None:
 
+        # ----------------------------
         # Identity
+        # ----------------------------
         self.identity_store = IdentityStore(path=identity_path)
         self.identity = self.identity_store.get()
 
-        # Memory (explicit context entry)
+        # ----------------------------
+        # Memory (context-managed)
+        # ----------------------------
         self.memory = MemoryStore(db_path=memory_path)
         self.memory.__enter__()
 
+        # ----------------------------
         # World
+        # ----------------------------
         self.world = World(width=world_size[0], height=world_size[1])
 
+        # ----------------------------
         # Engines
+        # ----------------------------
         self.bg = BackgroundCore(self.memory)
         self.perception = PerceptionEngine()
         self.health = HealthAnalyzer()
         self.phase = PhaseAnalyzer()
 
+        # ----------------------------
         # Agent
+        # ----------------------------
         self.enable_autonomy = bool(enable_autonomy)
         self.agent = A7DOAgent(self.memory)
 
-        # Spawn agent
+        # ----------------------------
+        # Spawn + boot event
+        # ----------------------------
         spawn_events = self.world.spawn_agent(spawn_at[0], spawn_at[1])
         self.memory.append_many(spawn_events)
 
-        # Boot marker
         self.memory.append(
             system_event(
                 source="bootstrap",
@@ -88,36 +106,67 @@ class SystemBootstrap:
             )
         )
 
+        # Important: run one background tick so health has initial state immediately
+        self.bg.step()
+
     # --------------------------------------------------------
     # Lifecycle
     # --------------------------------------------------------
 
     def close(self) -> None:
-        if self.memory:
+        try:
             self.memory.__exit__(None, None, None)
+        except Exception:
+            pass
 
     # --------------------------------------------------------
     # External control
     # --------------------------------------------------------
 
     def apply_move(self, dx: int, dy: int, source: str = "user") -> StepResult:
+        """
+        Apply a movement action.
+
+        Ordering is important:
+        - record action
+        - advance world
+        - record world events
+        - run background regulation (so health stays synced)
+        """
+        emitted: List[Event] = []
+
+        # Action
         act = action(source=source, name="move", payload={"dx": dx, "dy": dy})
         self.memory.append(act)
+        emitted.append(act)
 
+        # World step
         world_events = self.world.step(act)
         self.memory.append_many(world_events)
+        emitted.extend(world_events)
 
+        # Background regulation MUST run after experience is recorded
         internal_events = self.bg.step()
+        emitted.extend(internal_events)
+
+        # Agent can observe outcomes (no mutation here)
         self.agent.observe_outcomes()
 
-        emitted = world_events + internal_events
+        # Perception from emitted events
         percepts = self.perception.process(emitted)
 
         return self._bundle(emitted, percepts)
 
     def step(self, user_text: Optional[str] = None) -> StepResult:
+        """
+        One system tick.
+        - Optional user utterance
+        - Background regulation
+        - Optional autonomy action -> world step -> background regulation again
+        """
         emitted: List[Event] = []
 
+        # User utterance becomes an observation event
         if user_text:
             e = observation(
                 source="user",
@@ -127,9 +176,11 @@ class SystemBootstrap:
             self.memory.append(e)
             emitted.append(e)
 
+        # Background tick
         emitted.extend(self.bg.step())
         self.agent.observe_outcomes()
 
+        # Optional autonomy
         if self.enable_autonomy:
             act = self.agent.decide()
             if act:
@@ -139,6 +190,8 @@ class SystemBootstrap:
                 world_events = self.world.step(act)
                 self.memory.append_many(world_events)
                 emitted.extend(world_events)
+
+                # Regulation after autonomy experiences
                 emitted.extend(self.bg.step())
 
         percepts = self.perception.process(emitted)
@@ -149,7 +202,7 @@ class SystemBootstrap:
     # --------------------------------------------------------
 
     def _bundle(self, emitted: List[Event], percepts: List[Percept]) -> StepResult:
-        recent = self.memory.recent(200)
+        recent = self.memory.recent(300)
         return StepResult(
             emitted_events=emitted,
             percepts=percepts,
@@ -160,7 +213,7 @@ class SystemBootstrap:
         )
 
     def snapshot(self) -> Dict[str, Any]:
-        recent = self.memory.recent(200)
+        recent = self.memory.recent(300)
         return {
             "identity": {
                 "identity_id": self.identity.identity_id,
