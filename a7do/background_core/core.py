@@ -97,14 +97,14 @@ class BackgroundCore:
     """
 
     def __init__(self, memory: MemoryStore, config: Optional[BackgroundConfig] = None) -> None:
-        self.memory = memory
-        self.cfg = config or BackgroundConfig()
+    self.memory = memory
+    self.cfg = config or BackgroundConfig()
 
-        # Initialize state
-        self.state = BackgroundState()
+    # IMPORTANT: initialize state explicitly
+    self.state = BackgroundState()
 
-        # Initialise cursor safely (prevents None/int issues)
-        self.state.last_seen_seq = int(self.memory.last_seq() or 0)
+    # Start reading AFTER current memory tail
+    self.state.last_seen_seq = self.memory.last_seq()
 
     # --------------------------------------------------------
     # Public API
